@@ -1,0 +1,7 @@
+{
+  "name": "A.C.E. Interface",
+  "description": "A sophisticated, hands-free AI assistant for development and creative tasks, powered by Gemini Live API.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
