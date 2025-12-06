@@ -27,6 +27,7 @@ export class AceService {
   private metricInterval: any = null;
   private volumeInterval: any = null;
   private connectionTime = 0;
+  private keepAliveInterval: any = null;
   
   // Callbacks
   private onLog: (entry: LogEntry) => void;
@@ -101,6 +102,15 @@ export class AceService {
   // --- TEXT CHAT DIAGNOSTICS ---
   
   async sendTextMessage(text: string) {
+    // KILL SWITCH CHECK
+    if (text.toLowerCase().includes('make it rain')) {
+        this.log('USER', text);
+        this.log('SYSTEM', 'KILL SWITCH PROTOCOL ACTIVATED. IMMEDIATE TERMINATION.');
+        this.playSystemSound('error');
+        await this.disconnect();
+        return;
+    }
+
     this.log('USER', text);
     this.updateState('PROCESSING');
 
@@ -220,6 +230,8 @@ export class AceService {
         config: {
           responseModalities: [Modality.AUDIO],
           tools: [{ googleSearch: {} }],
+          // Enable input transcription for Kill Switch detection
+          inputAudioTranscription: {},
           systemInstruction: `You are A.C.E. (Artificial Consciousness Entity). 
           Current Time: ${new Date().toLocaleTimeString()}. 
           Greeting: Greet user based on time of day.
@@ -237,9 +249,41 @@ export class AceService {
             this.playSystemSound('online');
             this.updateState('STANDBY');
             this.nextStartTime = this.outputAudioContext?.currentTime || 0;
+            
+            // Keep Alive Pulse
+            this.keepAliveInterval = setInterval(() => {
+                if (Date.now() - this.connectionTime > 14 * 60 * 1000) {
+                     this.log('SYSTEM', 'WARNING: Session nearing time limit.');
+                }
+            }, 60000);
           },
           onmessage: async (msg: LiveServerMessage) => {
-            // Audio Handling
+            // 1. Check Transcription (Kill Switch)
+            const transcript = msg.serverContent?.inputTranscription?.text;
+            if (transcript) {
+                // Log what the user said (subtitles) - Helpful for debugging recognition
+                this.log('SYSTEM', `DEBUG: Heard "${transcript}"`);
+                
+                // FUZZY MATCHING FOR KILL SWITCH
+                // Homophones: Rain, Reign, Range, etc.
+                const cleanTranscript = transcript.toLowerCase();
+                if (
+                    cleanTranscript.includes('make it rain') || 
+                    cleanTranscript.includes('make it reign') ||
+                    cleanTranscript.includes('naked rain') || // Common mistranscription
+                    cleanTranscript.includes('breaking rain')
+                ) {
+                    this.log('SYSTEM', 'KILL SWITCH RECOGNIZED. INITIATING TERMINATION SEQUENCE...');
+                    this.playSystemSound('error');
+                    await this.disconnect();
+                    return;
+                }
+                
+                // Also log as USER chat for visual history
+                this.log('USER', transcript);
+            }
+
+            // 2. Audio Handling
             const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audioData) {
               this.updateState('TRANSMITTING');
@@ -252,7 +296,7 @@ export class AceService {
               this.enqueueAudio(buffer);
             }
 
-            // Grounding (Search Results)
+            // 3. Grounding (Search Results)
             const groundingMetadata = (msg.serverContent as any)?.groundingMetadata;
             if (groundingMetadata && groundingMetadata.groundingChunks) {
                 const sources = groundingMetadata.groundingChunks
@@ -269,7 +313,6 @@ export class AceService {
             }
           },
           onclose: () => {
-            // Check if connection lasted less than expected or hit the limit
             const duration = (Date.now() - this.connectionTime) / 1000 / 60;
             if (duration > 5) {
                 this.log('SYSTEM', 'Session Time Limit Reached. Re-initialize to continue.');
@@ -437,6 +480,8 @@ export class AceService {
     
     clearInterval(this.metricInterval);
     clearInterval(this.volumeInterval);
+    clearInterval(this.keepAliveInterval);
+    
     this.updateState('OFFLINE');
     this.textChat = null;
   }

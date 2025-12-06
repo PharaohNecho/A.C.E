@@ -16,7 +16,38 @@ function App() {
   });
   const [inputText, setInputText] = useState('');
   
+  // API Key Management for Public/GitHub Pages Deployment
+  const [apiKey, setApiKey] = useState<string>('');
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [tempKey, setTempKey] = useState('');
+
   const aceRef = useRef<AceService | null>(null);
+
+  useEffect(() => {
+    // 1. Check Environment Variable (Local Dev)
+    const envKey = process.env.API_KEY;
+    if (envKey) {
+        setApiKey(envKey);
+        return;
+    }
+
+    // 2. Check Local Storage (Deployed)
+    const storedKey = localStorage.getItem('ace_api_key');
+    if (storedKey) {
+        setApiKey(storedKey);
+    } else {
+        // 3. Prompt User
+        setShowKeyModal(true);
+    }
+  }, []);
+
+  const handleSaveKey = () => {
+      if (tempKey.trim().length > 10) {
+          localStorage.setItem('ace_api_key', tempKey.trim());
+          setApiKey(tempKey.trim());
+          setShowKeyModal(false);
+      }
+  };
 
   const addLog = (entry: LogEntry) => {
     setLogs(prev => [...prev, entry]);
@@ -39,17 +70,13 @@ function App() {
       setIsActive(false);
       aceRef.current = null;
     } else {
-      if (!process.env.API_KEY) {
-        addLog({
-            timestamp: new Date().toLocaleTimeString(),
-            sender: 'SYSTEM',
-            message: 'CRITICAL ERROR: API_KEY not found in environment.'
-        });
+      if (!apiKey) {
+        setShowKeyModal(true);
         return;
       }
 
       const ace = new AceService(
-        process.env.API_KEY,
+        apiKey,
         addLog,
         handleVolumeChange,
         handleMetricsUpdate
@@ -64,6 +91,15 @@ function App() {
         setIsActive(false);
       }
     }
+  };
+
+  const emergencyKill = async () => {
+      if (aceRef.current) {
+          addLog({ timestamp: new Date().toLocaleTimeString(), sender: 'SYSTEM', message: 'MANUAL KILL SWITCH TRIGGERED.' });
+          await aceRef.current.disconnect();
+      }
+      setIsActive(false);
+      aceRef.current = null;
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -126,6 +162,14 @@ function App() {
       <div className="hidden lg:block absolute top-0 right-0 p-8 border-r-4 border-t-4 border-cyan-600 w-32 h-32 opacity-60 rounded-tr-3xl"></div>
       <div className="hidden lg:block absolute bottom-0 left-0 p-8 border-l-4 border-b-4 border-cyan-600 w-32 h-32 opacity-60 rounded-bl-3xl"></div>
       <div className="hidden lg:block absolute bottom-0 right-0 p-8 border-r-4 border-b-4 border-cyan-600 w-32 h-32 opacity-60 rounded-br-3xl"></div>
+
+      {/* EMERGENCY KILL BUTTON */}
+      <button 
+        onClick={emergencyKill}
+        className="absolute top-4 right-4 z-50 bg-red-950/80 border border-red-500 text-red-500 px-4 py-2 text-xs font-bold tracking-widest hover:bg-red-500 hover:text-black transition-all rounded"
+      >
+        KILL SWITCH
+      </button>
 
       {/* Main Container */}
       <div className="relative z-10 flex flex-col lg:grid lg:grid-cols-3 gap-6 lg:gap-8 w-full max-w-7xl mx-auto p-4 lg:p-12 flex-grow h-screen max-h-screen">
@@ -294,6 +338,36 @@ function App() {
       {/* Decorative lines */}
       <div className="hidden lg:block absolute top-1/2 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-900/30 to-transparent pointer-events-none"></div>
       <div className="hidden lg:block absolute left-1/2 top-0 w-[1px] h-full bg-gradient-to-b from-transparent via-cyan-900/30 to-transparent pointer-events-none"></div>
+
+      {/* API Key Modal for GitHub Pages / No Env Support */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md">
+            <div className="bg-gray-900 border border-cyan-500 p-8 rounded-lg shadow-[0_0_50px_rgba(0,188,212,0.3)] max-w-md w-full">
+                <h2 className="text-cyan-400 font-tech text-2xl mb-4 tracking-widest">SECURITY CLEARANCE</h2>
+                <p className="text-cyan-100 text-sm mb-6 font-mono">
+                    Identity verification required. Enter Gemini API Key to initialize A.C.E. protocols.
+                </p>
+                <input 
+                    type="password" 
+                    value={tempKey}
+                    onChange={(e) => setTempKey(e.target.value)}
+                    placeholder="Paste API Key here..."
+                    className="w-full bg-black border border-cyan-800 rounded p-3 text-cyan-300 font-mono outline-none focus:border-cyan-400 mb-6"
+                />
+                <div className="flex justify-end gap-4">
+                    <button 
+                        onClick={handleSaveKey}
+                        className="bg-cyan-900/50 hover:bg-cyan-700 text-cyan-300 font-bold py-2 px-6 rounded transition-colors"
+                    >
+                        AUTHENTICATE
+                    </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-4 text-center">
+                    Key is stored locally in your browser's encrypted storage.
+                </p>
+            </div>
+        </div>
+      )}
     </div>
   );
 }
